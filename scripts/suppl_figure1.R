@@ -86,15 +86,16 @@ combined_plot <- ggplot(combined_df, aes(y = yaxis_order)) +
   geom_point(aes(x = first_year_both, col=`Species discovery`), size = 0.1) +
   facet_wrap(~Site) +
   theme_classic() +
-  labs(x = "Year", y = "", col="Species discovery") +
+  labs(x = "", y = "", col="Species discovery") +
   theme(
     axis.text.y = element_blank(),
     axis.ticks.y = element_blank(),
     panel.grid.major.y = element_blank(),
     panel.grid.minor.y = element_blank(),
     axis.line.y = element_blank(),
-    axis.line.x = element_blank()
+    axis.line.x = element_blank() # Reduce space between y-axis and plot
   ) +
+  scale_y_continuous(expand = c(0.01, 0.05)) +
   scale_color_manual(values = c("Voucher first"="#D55E00",
                                 "Photograph first"="#0072B2",
                                 "Voucher only"="#608CB8",
