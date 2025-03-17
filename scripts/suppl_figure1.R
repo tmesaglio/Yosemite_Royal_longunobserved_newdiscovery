@@ -71,10 +71,11 @@ roy_selected <- roy_keep_filtered %>%
 # Now combine
 combined_df <- bind_rows(yos_selected, roy_selected) %>% mutate(Site = factor(Site, levels = c("Yosemite", "Royal")))
 
-# Count species discovery types per site
+# Ensure Yosemite has "Both in the same year = 0" for balance
 discovery_counts <- combined_df %>%
   group_by(Site, `Species discovery`) %>%
-  summarize(Count = n(), .groups = "drop")
+  summarize(Count = n(), .groups = "drop") %>%
+  complete(Site, `Species discovery`, fill = list(Count = 0))
 
 # Create plot
 combined_plot <- ggplot(combined_df, aes(y = yaxis_order)) +
@@ -114,6 +115,6 @@ combined_plot <- combined_plot +
             hjust = 0, vjust = 1.1, size = 3, inherit.aes = FALSE)
 
 # Save the combined plot
-ggsave("output/combined_species_discovery.pdf", combined_plot, width = 12, height = 10)
-ggsave("output/combined_species_discovery.png", combined_plot, width = 12, height = 10)
-ggsave("output/combined_species_discovery.svg", combined_plot, width = 12, height = 10)
+ggsave("output/combined_species_discovery.pdf", combined_plot, width = 8, height = 7)
+ggsave("output/combined_species_discovery.png", combined_plot, width = 8, height = 7)
+ggsave("output/combined_species_discovery.svg", combined_plot, width = 8, height = 7)
