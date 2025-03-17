@@ -213,10 +213,10 @@
 <rect x='440.28' y='156.81' width='1.86' height='0.11' style='stroke-width: 1.07; stroke: none; stroke-linecap: butt; stroke-linejoin: miter; fill: #608CB8; fill-opacity: 0.75;' />
 <line x1='143.67' y1='119.02' x2='143.67' y2='156.92' style='stroke-width: 1.07; stroke: #0000FF; stroke-linecap: butt;' />
 <polyline points='140.84,152.01 143.67,156.92 146.51,152.01 ' style='stroke-width: 1.07; stroke: #0000FF; stroke-linecap: butt;' />
-<line x1='63.09' y1='119.02' x2='63.09' y2='156.92' style='stroke-width: 1.07; stroke: #0000FF; stroke-linecap: butt;' />
-<polyline points='60.26,152.01 63.09,156.92 65.93,152.01 ' style='stroke-width: 1.07; stroke: #0000FF; stroke-linecap: butt;' />
+<line x1='67.22' y1='119.02' x2='67.22' y2='156.92' style='stroke-width: 1.07; stroke: #0000FF; stroke-linecap: butt;' />
+<polyline points='64.39,152.01 67.22,156.92 70.06,152.01 ' style='stroke-width: 1.07; stroke: #0000FF; stroke-linecap: butt;' />
 <text transform='translate(146.73,51.35) rotate(-90)' text-anchor='end' style='font-size: 8.54px;fill: #0000FF; font-family: "Arial";' textLength='58.31px' lengthAdjust='spacingAndGlyphs'>Park Formation</text>
-<text transform='translate(66.15,26.98) rotate(-90)' text-anchor='end' style='font-size: 8.54px;fill: #0000FF; font-family: "Arial";' textLength='82.95px' lengthAdjust='spacingAndGlyphs'>First Extant Collection</text>
+<text transform='translate(70.28,26.98) rotate(-90)' text-anchor='end' style='font-size: 8.54px;fill: #0000FF; font-family: "Arial";' textLength='82.95px' lengthAdjust='spacingAndGlyphs'>First Extant Collection</text>
 <line x1='373.02' y1='164.13' x2='373.02' y2='5.48' style='stroke-width: 1.07; stroke-dasharray: 5.69,5.69; stroke-linecap: butt;' />
 <rect x='43.06' y='5.48' width='420.25' height='158.65' style='stroke-width: 1.07; stroke: #333333;' />
 </g>
@@ -447,11 +447,11 @@
 <polyline points='163.57,316.14 166.40,321.05 169.24,316.14 ' style='stroke-width: 1.07; stroke: #0000FF; stroke-linecap: butt;' />
 <line x1='112.68' y1='304.08' x2='112.68' y2='321.05' style='stroke-width: 1.07; stroke: #0000FF; stroke-linecap: butt;' />
 <polyline points='109.85,316.14 112.68,321.05 115.52,316.14 ' style='stroke-width: 1.07; stroke: #0000FF; stroke-linecap: butt;' />
-<line x1='92.02' y1='304.08' x2='92.02' y2='321.05' style='stroke-width: 1.07; stroke: #0000FF; stroke-linecap: butt;' />
-<polyline points='89.18,316.14 92.02,321.05 94.85,316.14 ' style='stroke-width: 1.07; stroke: #0000FF; stroke-linecap: butt;' />
+<line x1='104.42' y1='304.08' x2='104.42' y2='321.05' style='stroke-width: 1.07; stroke: #0000FF; stroke-linecap: butt;' />
+<polyline points='101.58,316.14 104.42,321.05 107.25,316.14 ' style='stroke-width: 1.07; stroke: #0000FF; stroke-linecap: butt;' />
 <text transform='translate(169.46,238.61) rotate(-90)' text-anchor='end' style='font-size: 8.54px;fill: #0000FF; font-family: "Arial";' textLength='58.31px' lengthAdjust='spacingAndGlyphs'>Park Formation</text>
 <text transform='translate(115.74,238.61) rotate(-90)' text-anchor='end' style='font-size: 8.54px;fill: #0000FF; font-family: "Arial";' textLength='59.26px' lengthAdjust='spacingAndGlyphs'>Yosemite Grant</text>
-<text transform='translate(95.08,216.79) rotate(-90)' text-anchor='end' style='font-size: 8.54px;fill: #0000FF; font-family: "Arial";' textLength='82.95px' lengthAdjust='spacingAndGlyphs'>First Extant Collection</text>
+<text transform='translate(107.48,216.79) rotate(-90)' text-anchor='end' style='font-size: 8.54px;fill: #0000FF; font-family: "Arial";' textLength='82.95px' lengthAdjust='spacingAndGlyphs'>First Extant Collection</text>
 <line x1='373.02' y1='328.27' x2='373.02' y2='169.61' style='stroke-width: 1.07; stroke-dasharray: 5.69,5.69; stroke-linecap: butt;' />
 <rect x='43.06' y='169.61' width='420.25' height='158.65' style='stroke-width: 1.07; stroke: #333333;' />
 </g>

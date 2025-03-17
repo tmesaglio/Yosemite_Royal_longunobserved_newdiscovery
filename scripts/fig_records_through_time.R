@@ -24,10 +24,10 @@ both <- rbind(select(roy_vouch,year,park,`Record type`),select(yos_vouch,year,pa
 
 # Event data frame
 events <- data.frame(
-  year = c(1890, 1864,1879,1840,1854),
+  year = c(1890, 1864, 1879, 1842, 1860),
   event = c("Park Formation", "Yosemite Grant","Park Formation","First Extant Collection","First Extant Collection"),
   park = c("Yosemite", "Yosemite","Royal","Royal","Yosemite"),
-  y = c(3400,3400, 1950,2400,4300)  # Adjust the vertical position as needed
+  y = c(3400, 3400, 1950, 2400, 4300)  # Adjust the vertical position as needed
 )
 
 
