@@ -1,0 +1,892 @@
+---
+title: "Paper 2"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Libraries
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(data.table)
+
+# spatial
+library(sf)
+library(rmapshaper)
+
+# plotting
+library(eulerr)
+library(cowplot)
+library(scales)
+library(gridExtra)
+library(grid)
+library(ggspatial)
+
+setwd("C:/Users/Lizzy/Documents/GitHub/Yosmite_Royal_longunobserved_newdiscovery/")
+```
+
+## Read in Yosemite data
+
+```{r}
+Yosemite_species_list <- read_csv("data/Yosemite_alltime_list_2025_03_17.csv")
+
+Yosemite_species_paper_2 <- Yosemite_species_list %>%
+  filter(final_list == "1") %>%
+  filter(voucher_END == "1" | iNat_RG_END == "1")
+  
+Yosemite_synonym_lookup <- read_csv("data/Yosemite_synonyms_lookup_2024_06_11.csv") %>%
+  select(scientificName = starting_name, current_name, name_source) %>%
+  distinct(current_name, .keep_all = TRUE)
+
+Yosemite_iNat <- read_csv("data/Yosemite_iNat_RG_2024_03.csv") %>%
+  filter(str_detect(scientific_name, " ")) %>%
+  mutate(
+    scientific_name = str_replace(scientific_name, "×", "x"),
+    scientificName = ifelse(
+      word(scientific_name, start = 2, end = 2) %in% c("x","×"), 
+      word(scientific_name, start = 1, end = 3), 
+      word(scientific_name, start = 1, end = 2))
+    ) %>%
+  left_join(Yosemite_synonym_lookup) %>%
+  rename(
+    original_name = scientific_name,
+    synonym = scientificName,
+    scientific_name = current_name
+    )
+
+Yosemite_manual_dates <- read_csv("data/Yosemite_manual_dates.csv")
+
+Yosemite_CCH2_data <- read_csv("data/Yosemite_CCH_records_2024_09_22.csv") %>%
+  filter(phylum == "Tracheophyta") %>%                  # retain only vascular plants
+  filter(keep_omit == c("keep")) %>%                    # retain only valid vouchers
+  filter(year > 1859) %>%                               # remove garbage years
+  filter(recordedBy != "Gill, Raymond J.") %>%          # remove collection with photographic observations only
+  filter(stringr::str_detect(scientificName, " ")) %>%  # remove genera
+  left_join(Yosemite_synonym_lookup) %>%
+  select(current_name, scientificName, keep_omit, institutionCode, recordedBy_simple, eventDate, year, locality, institutionCode, 
+         recordNumber, decimalLatitude, decimalLongitude, recordedBy, county) %>%
+  filter(!is.na(current_name))
+
+Yosemite_gbif_to_include <- read_csv("data/Yosemite_GBIF_records_2024_06_14.csv") %>%
+  filter(keep_omit == "keep") %>% 
+  rename(scientificName = scientific_name) %>%
+  select(-current_name) %>%
+  left_join(Yosemite_synonym_lookup %>% distinct(scientificName, .keep_all = TRUE))
+
+Yosemite_voucher_data <- Yosemite_CCH2_data %>%
+  bind_rows(Yosemite_gbif_to_include)
+```
+
+## Read in Royal data
+
+```{r}
+#Royal_observers <- read_csv("data_Royal/species_per_collector.csv")
+```
+
+## Figure 2. Maps of long unobserved, recent discoveries
+
+```{r}
+establish_colours <-  c("native" = "#6A51A3", "introduced" = "red")
+source_shapes <-  c("iNat" = 17, "voucher" = 16)
+
+Yosemite_long_unseen <- Yosemite_species_paper_2 %>%
+  filter(is.na(recent_voucher) & is.na(iNat_RG_END))
+
+# to generate temporary spreadsheet to edit manually
+
+#Yosemite_long_unseen_locations <- Yosemite_CCH2_data %>%
+#  filter(current_name %in% Yosemite_long_unseen$accepted_name, keep_omit == "keep") %>%
+  # turning off so that I retain actual final location and will manually fill in locations
+  #filter(!is.na(decimalLatitude)) %>%   
+#  arrange(-year) %>%
+#  group_by(current_name) %>%
+#  summarise_all(.funs = first) %>%
+#  distinct() %>%
+#  ungroup() %>%
+#  left_join(Yosemite_long_unseen %>% select(current_name = accepted_name, establishment_means))
+
+#Yosemite_long_unseen_locations %>% write_csv("data/Yosemite_long_unseen_last_location.csv")
+
+Yosemite_long_unseen_locations <- read_csv("data/Yosemite_long_unseen_lat_lon_edited.csv") %>%
+  filter(is.na(omit_from_list)) %>%
+  mutate(source = "voucher") %>%
+  left_join(Yosemite_long_unseen %>% select(current_name = accepted_name, establishment_means))
+
+Yosemite_recent_additions_data <- Yosemite_species_paper_2 %>%
+  filter(is.na(old_voucher) & (iNat_RG_END == "1" | recent_voucher == "1"))
+
+Yosemite_iNat_recent_additions <- Yosemite_iNat %>%
+  select(scientific_name, observed_on, latitude, longitude) %>%
+  filter(scientific_name %in% Yosemite_recent_additions_data$accepted_name) %>%
+  mutate(source = "iNat")
+  
+Yosemite_CCH_recent_additions <- Yosemite_CCH2_data %>%
+  filter(current_name %in% Yosemite_recent_additions_data$accepted_name, keep_omit == "keep") %>%
+  # turning off so that I retain actual final location and will manually fill in locations
+  #filter(!is.na(decimalLatitude), decimalLatitude > 37) %>%
+  arrange(year) %>%
+  group_by(current_name) %>%
+  summarise_all(.funs = first) %>%
+  distinct() %>%
+  ungroup() %>%
+  select(scientific_name = current_name, observed_on = year, latitude = decimalLatitude , longitude = decimalLongitude, recordedBy_simple, locality, institutionCode) %>%
+  mutate(observed_on = lubridate::make_date(observed_on, 1, 1))
+
+Yosemite_recent_additions_vouchers <- read_csv("data/Yosemite_voucher_recent_additions_latlon_edited.csv") %>% 
+  mutate(
+    source = "voucher", 
+    observed_on = date(observed_on)
+    )
+
+Yosemite_recent_additions_all <- Yosemite_iNat_recent_additions %>%
+  bind_rows(Yosemite_recent_additions_vouchers) %>%
+  left_join(Yosemite_recent_additions_data %>% select(scientific_name = accepted_name, establishment_means)) %>%
+  arrange(observed_on) %>%
+  group_by(scientific_name) %>%
+  summarise_all(.funs = first) %>%
+  ungroup() %>%
+  distinct()
+
+Yosemite_recent_additions_all <- read_csv("data/Yosemite_recent_additions_all_latlon_edited.csv")
+
+yosemite_outline <- st_read("data/Yosemite.shp") %>%
+  st_transform(crs = 4326) %>%
+  st_make_valid()
+
+yos_roads <- st_read("data/Yosemite_roads.gpx", layer = "tracks") %>%
+  st_transform(crs = 4326) %>%
+  st_make_valid()
+
+yos_roads_clipped <- rmapshaper::ms_clip(target = yos_roads, clip = yosemite_outline[1])
+
+Yosemite_long_unseen <- 
+  ggplot() + 
+  geom_sf(mapping = aes(), data = yosemite_outline , stat = "sf", fill = "#C5DDC2", color = "grey50", alpha = 0.5) +
+  geom_sf(mapping = aes(), data = yos_roads_clipped, stat = "sf") +
+  geom_point(aes(longitude, latitude, col = factor(establishment_means)), data = Yosemite_long_unseen_locations, position = position_jitter(height=.005, width=.005)) +
+  scale_colour_manual(values = establish_colours, name = "origin") +
+  #scale_x_continuous(expand = c(0, 0)) +
+  #scale_y_continuous(expand = c(0, 0)) +
+  theme_classic() + 
+  ggtitle("d. Yosemite") +
+  theme(
+    legend.position = "none",
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_blank(),
+    axis.ticks.length = unit(0, "pt"),
+    plot.title = element_text(hjust = 0, size = 10),
+    plot.margin=unit(c(.0,.0,.0,.0),"cm")
+  )
+
+Yos_new_discoveries_tmp <-
+  ggplot() + 
+  geom_sf(mapping = aes(), data = yosemite_outline , stat = "sf", fill = "#C5DDC2", color = "grey50", alpha = 0.5) +
+  geom_sf(mapping = aes(), data = yos_roads_clipped, stat = "sf") +
+  geom_point(aes(longitude, latitude, col = factor(establishment_means), shape = factor(source)), data = Yosemite_recent_additions_all, position = position_jitter(height=.005, width=.005)) +
+  scale_colour_manual(values = establish_colours, name = "species origin") +
+  scale_shape_manual(values = source_shapes, name = "data source") +
+  ggspatial::annotation_scale(location = "br", width_hint = 0.5, pad_y = unit(0, "cm"), pad_x = unit(0, "cm"),line_width = 0.5, height = unit(0.2, "cm")) +
+  #scale_x_continuous(expand = c(0, 0)) +
+  #scale_y_continuous(expand = c(0, 0)) +
+  theme_classic() +
+  ggtitle("b. Yosemite") +
+  theme(
+    legend.position = "bottom",
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_blank(),
+    axis.ticks.length = unit(0, "pt"),
+    plot.title = element_text(hjust = 0, size = 10),
+    plot.margin=unit(c(.0,.0,.0,.0),"cm")
+  )
+
+legend_maps <- get_legend(Yos_new_discoveries_tmp) #+ theme(legend.margin = margin(2, 2, 2, 2))
+
+Yos_new_discoveries <- Yos_new_discoveries_tmp + theme(legend.position = "none")
+```
+
+```{r}
+Royal_location <- read_csv("data/Royal_locations_first_last_coordinates_2024_11_05.csv")
+establish_colours2 <-  c("native" = "#6A51A3", "introduced" = "red")
+source_shapes <-  c("iNat" = 17, "voucher" = 16)
+
+Royal_long_unseen_locations <- Royal_location %>%
+  filter(category == "long unseen", `record type` == "voucher")
+
+Royal_Yosemite_recent_additions_all <- Royal_location %>%
+  filter(category == "new discovery") %>%
+  rename(source = `record type`)
+
+Royal_outline <- st_read("data/Royal_outline.shp") %>%
+  st_transform(crs = 4326) %>%
+  st_make_valid()
+
+Royal_roads <- st_read("data/Royal_roads.gpx", layer = "tracks") %>%
+  st_transform(crs = 4326) %>%
+  st_make_valid()
+
+Royal_roads_clipped <- rmapshaper::ms_clip(target = Royal_roads, clip = Royal_outline[1])
+
+Royal_long_unseen <-
+  ggplot() + 
+  geom_sf(mapping = aes(), data = Royal_outline , stat = "sf", fill = "#C5DDC2", color = "grey50", alpha = 0.5) +
+  geom_sf(mapping = aes(), data = Royal_roads_clipped, stat = "sf") +
+  geom_point(aes(longitude, latitude, col = factor(establishment_means)), data = Royal_long_unseen_locations, position = position_jitter(height=.001, width=.001)) +
+  scale_colour_manual(values = establish_colours2, name = "origin") +
+  annotation_scale(location = "br", width_hint = 0.5, pad_y = unit(1.4, "cm"), pad_x = unit(.3, "cm"), line_width = 0.5, height = unit(0.2, "cm")) +
+  #scale_x_continuous(expand = c(0, 0)) +
+  #scale_y_continuous(expand = c(0, 0)) +
+  theme_classic() + 
+  ggtitle("c. Royal") +
+  theme(
+    legend.position = "none",
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_blank(),
+    axis.ticks.length = unit(0, "pt"),
+    plot.title = element_text(hjust = 0, size = 10),
+    plot.margin=unit(c(.0,.0,.0,.0),"cm")
+  )
+
+Royal_new_discoveries <-
+  ggplot() + 
+  geom_sf(mapping = aes(), data = Royal_outline , stat = "sf", fill = "#C5DDC2", color = "grey50", alpha = 0.5) +
+  geom_sf(mapping = aes(), data = Royal_roads_clipped, stat = "sf") +
+  geom_point(aes(longitude, latitude, col = factor(establishment_means), shape = factor(source)), data = Royal_Yosemite_recent_additions_all, position = position_jitter(height=.001, width=.001)) +
+  scale_colour_manual(values = establish_colours2, name = "species origin") +
+  scale_shape_manual(values = source_shapes, name = "data source") +
+  #scale_x_continuous(expand = c(0, 0)) +
+  #scale_y_continuous(expand = c(0, 0)) +
+  theme_classic() +
+  ggtitle("a. Royal") +
+  theme(
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_blank(),
+    axis.ticks.length = unit(0, "pt"),
+    plot.title = element_text(hjust = 0, size = 10),
+    plot.margin=unit(c(0,0,0,0),"cm"),
+    legend.position = "none"
+    )
+```
+
+```{r}
+unseen <- grid.arrange(
+  Yosemite_long_unseen, Royal_long_unseen,
+  ncol = 2,
+  top = textGrob("Last record location for long-unseen species", gp = gpar(fontsize = 10), hjust = 1.2)
+  )
+
+new_discoveries <- grid.arrange(
+  Yos_new_discoveries, Royal_new_discoveries,
+  ncol = 2,
+  top = textGrob("First record location for post-1990 discoveries", gp = gpar(fontsize = 10), hjust = 1.2)
+  )
+
+#legend <- grid.arrange(
+#  legend_maps, blank,
+#  ncol = 2
+#  )
+
+all_maps <- grid.arrange(
+  new_discoveries, unseen, legend_maps,
+  ncol = 1, 
+  heights = c(1, 1, 0.08)
+)
+
+cowplot::save_plot("output/Fig2_locations.svg", all_maps, base_width = 8, base_height = 9)
+```
+
+## Figure 3. Decline in "unobserved" over time
+
+### - function to calculate declining long-unseens
+
+```{r}
+summarise_long_unseens <-function(data, detection_column, total_species) {
+
+    detection_data_summary <- data %>%
+      select(detection_column) %>%
+      group_by(detection_column) %>%
+      mutate(re_finds_per_year = n()) %>%
+      distinct(re_finds_per_year) %>%
+      ungroup() %>%
+      bind_rows(c("detection_column" = 1989, "re_finds_per_year" = 0)) %>%
+      arrange(detection_column) %>%
+      mutate(total_refound = re_finds_per_year,
+             total_refound = accumulate(re_finds_per_year[-1], sum, .init = total_refound[1]),
+             remaining = total_species - total_refound,
+             proportion_remaining = remaining / total_species,
+             detection_column = detection_column + 1
+             ) %>%
+      rename(year = detection_column)
+    
+    if (max(detection_data_summary$year) < 2024) {
+    detection_data_summary <- detection_data_summary %>%
+      bind_rows(c("year" = 2024, 
+                  "re_finds_per_year" = 0, 
+                  "total_refound" = max(detection_data_summary$total_refound), 
+                  "remaining" = min(detection_data_summary$remaining),
+                  "proportion_remaining" = min(detection_data_summary$proportion_remaining)
+      ))
+    }
+  detection_data_summary
+}
+```
+
+### - generate data summaries - Yosemite
+
+```{r}
+
+Yosemite_paper2_fig3_data <-
+  Yosemite_species_paper_2 %>%
+  select(accepted_name, family, broader, establishment_means, voucher_END, iNat_RG_END, old_voucher, recent_voucher) %>%
+  distinct()
+
+# vouchers
+Yosemite_recent_vouchers <- Yosemite_voucher_data %>%
+  filter(keep_omit == "keep", year > 1989) %>%
+  filter(current_name %in% Yosemite_paper2_fig3_data$accepted_name) %>%
+  select(accepted_name = current_name, year) %>%
+  mutate(dataset = "voucher") %>%
+  arrange(year) %>%
+  distinct(accepted_name, .keep_all = TRUE)
+
+Yosemite_total_species <- nrow(Yosemite_paper2_fig3_data)
+
+Yosemite_voucher_redetection_summary <- Yosemite_recent_vouchers %>%
+  select(year) %>%
+  group_by(year) %>%
+  mutate(re_finds_per_year = n()) %>%
+  distinct(re_finds_per_year) %>%
+  ungroup() %>%
+  bind_rows(c("year" = 1989, "re_finds_per_year" = 0)) %>%
+  arrange(year) %>%
+  mutate(total_refound = re_finds_per_year,
+         total_refound = accumulate(re_finds_per_year[-1], sum, .init = total_refound[1]),
+         remaining = Yosemite_total_species - total_refound,
+         proportion_remaining = remaining / Yosemite_total_species,
+         year = year + 1
+         )
+  
+  if (max(Yosemite_voucher_redetection_summary$year) < 2024) {
+  Yosemite_voucher_redetection_summary <- Yosemite_voucher_redetection_summary %>%
+    bind_rows(c("year" = 2024, 
+                "re_finds_per_year" = 0, 
+                "total_refound" = max(Yosemite_voucher_redetection_summary$total_refound), 
+                "remaining" = min(Yosemite_voucher_redetection_summary$remaining),
+                "proportion_remaining" = min(Yosemite_voucher_redetection_summary$proportion_remaining)
+    ))
+  }
+
+# iNaturalist
+Yosemite_recent_iNat <- Yosemite_iNat %>%
+  select(scientific_name, observed_on) %>%
+  mutate(year = year(observed_on)) %>%
+  # this is very slightly changes the outcome, but makes for a much nicer figure; there are 11 taxa with observations 1990-2001
+  filter(year > 2002) %>%
+  filter(scientific_name %in% Yosemite_species_paper_2$accepted_name) %>%
+  select(accepted_name = scientific_name, year) %>%
+  arrange(year) %>%
+  distinct(accepted_name, .keep_all = TRUE) %>%
+  bind_rows(Yosemite_manual_dates %>% filter(!is.na(first_iNat_manual)) %>% select(accepted_name, year = first_iNat_manual) %>% mutate(manual_bind = "manual_bind")) %>%
+  mutate(dataset = "iNat")
+# have confirmed there were no species with pre-2008 observations that haven't been seen since - so filtering changes when species were "ticked off" the iNat list, but not whether they are ticked off the list, at least for Yosemite
+
+Yosemite_iNat_redetection_summary <- Yosemite_recent_iNat %>%
+  select(year) %>%
+  group_by(year) %>%
+  mutate(re_finds_per_year = n()) %>%
+  distinct(re_finds_per_year) %>%
+  ungroup() %>%
+  bind_rows(c("year" = 1989, "re_finds_per_year" = 0)) %>%
+  arrange(year) %>%
+  mutate(total_refound = re_finds_per_year,
+         total_refound = accumulate(re_finds_per_year[-1], sum, .init = total_refound[1]),
+         remaining = Yosemite_total_species - total_refound,
+         proportion_remaining = remaining / Yosemite_total_species,
+         year = year + 1
+         ) %>%
+  bind_rows(c("year" = 2003, "re_finds_per_year" = 0, "total_refound" = 0, "remaining" = Yosemite_total_species, "proportion_remaining" = 1))
+  
+if (max(Yosemite_iNat_redetection_summary$year) < 2024) {
+  Yosemite_iNat_redetection_summary <- Yosemite_iNat_redetection_summary %>%
+    bind_rows(c("year" = 2024, 
+                "re_finds_per_year" = 0, 
+                "total_refound" = max(Yosemite_iNat_redetection_summary$total_refound), 
+                "remaining" = min(Yosemite_iNat_redetection_summary$remaining),
+                "proportion_remaining" = min(Yosemite_iNat_redetection_summary$proportion_remaining)
+    ))
+}
+
+Yosemite_first_iNat = min(Yosemite_recent_iNat$year)
+
+# combined voucher & iNat
+
+Yosemite_recent_obs_combined <- Yosemite_recent_vouchers %>%
+  bind_rows(Yosemite_recent_iNat %>% select(-manual_bind)) %>%
+  arrange(accepted_name, year) %>%
+  #mutate(accepted_name = stringr::word(accepted_name, start = 1, end = 2)) %>%
+  group_by(accepted_name) %>%
+  summarise_all(.funs = first) %>%
+  ungroup() %>%
+  arrange(year)
+
+Yosemite_combined_redetection_summary <- Yosemite_recent_obs_combined %>%
+  group_by(year) %>%
+  mutate(re_finds_per_year = n()) %>%
+  distinct(re_finds_per_year) %>%
+  ungroup()
+
+Yosemite_recent_obs_2_lines <- Yosemite_recent_obs_combined %>%
+  mutate(counts = 1) %>%
+  pivot_wider(names_from = dataset, values_from = counts) %>%
+  mutate(
+    iNat = if_else(is.na(iNat), 0, iNat),
+    voucher = if_else(is.na(voucher), 0, voucher)
+    ) %>%
+  select(-accepted_name) %>%
+  group_by(year) %>%
+  mutate(
+    voucher_finds_per_year = sum(voucher),
+    iNat_finds_per_year = sum(iNat)
+    ) %>%
+  select(-voucher, -iNat) %>%
+  distinct() %>%
+  ungroup() %>%
+  left_join(Yosemite_combined_redetection_summary %>% rename(combined_finds_per_year = re_finds_per_year))
+
+Yosemite_recent_obs_2_lines <- Yosemite_recent_obs_2_lines %>%
+  bind_rows(c("year" = 1989, "voucher_finds_per_year" = 0, "iNat_finds_per_year" = 0, "combined_finds_per_year" = 0)) %>%
+  arrange(year) %>%
+  mutate(total_combined_refound = combined_finds_per_year,
+         total_voucher_refound  = voucher_finds_per_year,
+         total_combined_refound = accumulate(combined_finds_per_year[-1], sum, .init = total_combined_refound[1]),
+         total_voucher_refound = accumulate(voucher_finds_per_year[-1], sum, .init = total_voucher_refound[1]),
+         remaining_combined = Yosemite_total_species - total_combined_refound,
+         remaining_voucher = Yosemite_total_species - total_voucher_refound,
+         proportion_remaining_combined = remaining_combined / Yosemite_total_species,
+         year = year + 1
+         )
+```
+
+### - generate data summaries - Royal
+
+```{r}
+Royal_need_finding <- read_csv("data/Royal_long_unobserved.csv") %>%
+  rename(
+    first_voucher_since_1990 = `First voucher since 1990`,
+    first_iNat_since_1990 = `First iNat record since 1990`
+  )
+
+Royal_total_species = nrow(Royal_need_finding)
+
+Royal_recent_vouchers <- Royal_need_finding %>%
+  select(scientific_name, year = first_voucher_since_1990) %>%
+  filter(!is.na(year)) %>%
+  arrange(year) %>%
+  mutate(dataset = "voucher")
+
+Royal_voucher_redetection_summary <- Royal_recent_vouchers %>%
+  group_by(year) %>%
+  mutate(re_finds_per_year = n()) %>%
+  distinct(re_finds_per_year) %>%
+  ungroup() %>%
+  bind_rows(c("year" = 1989, "re_finds_per_year" = 0)) %>%
+  arrange(year) %>%
+  mutate(total_refound = re_finds_per_year,
+         total_refound = accumulate(re_finds_per_year[-1], sum, .init = total_refound[1]),
+         remaining = Royal_total_species - total_refound,
+         proportion_remaining = remaining / Royal_total_species,
+         year = year + 1
+         )
+  
+  if (max(Royal_voucher_redetection_summary$year) < 2024) {
+  Royal_voucher_redetection_summary <- Royal_voucher_redetection_summary %>%
+    bind_rows(c("year" = 2024, 
+                "re_finds_per_year" = 0, 
+                "total_refound" = max(Royal_voucher_redetection_summary$total_refound), 
+                "remaining" = min(Royal_voucher_redetection_summary$remaining),
+                "proportion_remaining" = min(Royal_voucher_redetection_summary$proportion_remaining)
+    ))
+  }
+
+
+Royal_recent_iNat <- Royal_need_finding %>%
+  select(scientific_name, year = first_iNat_since_1990) %>%
+  filter(!is.na(year)) %>%
+  arrange(year) %>%
+  mutate(dataset = "voucher")
+
+Royal_iNat_redetection_summary <- Royal_recent_iNat %>%
+  group_by(year) %>%
+  mutate(re_finds_per_year = n()) %>%
+  distinct(re_finds_per_year) %>%
+  ungroup() %>%
+  bind_rows(c("year" = 1989, "re_finds_per_year" = 0)) %>%
+  arrange(year) %>%
+  mutate(total_refound = re_finds_per_year,
+         total_refound = accumulate(re_finds_per_year[-1], sum, .init = total_refound[1]),
+         remaining = Royal_total_species - total_refound,
+         proportion_remaining = remaining / Royal_total_species,
+         year = year + 1
+         ) %>%
+  bind_rows(c("year" = 2003, "re_finds_per_year" = 0, "total_refound" = 0, "remaining" = Royal_total_species, "proportion_remaining" = 1))
+  
+if (max(Royal_iNat_redetection_summary$year) < 2024) {
+  Royal_iNat_redetection_summary <- Royal_iNat_redetection_summary %>%
+    bind_rows(c("year" = 2024, 
+                "re_finds_per_year" = 0, 
+                "total_refound" = max(Royal_iNat_redetection_summary$total_refound), 
+                "remaining" = min(Royal_iNat_redetection_summary$remaining),
+                "proportion_remaining" = min(Royal_iNat_redetection_summary$proportion_remaining)
+    ))
+}
+
+Royal_first_iNat = min(Royal_recent_iNat$year)
+
+
+# Royal combined - panel B summary
+
+Royal_recent_obs_combined <- Royal_need_finding %>%
+  filter(!is.na(first_voucher_since_1990) | !is.na(first_iNat_since_1990)) %>%
+  rowwise() %>%
+  mutate(
+    year = case_when(
+      is.na(first_voucher_since_1990) ~ first_iNat_since_1990,
+      is.na(first_iNat_since_1990) ~ first_voucher_since_1990,
+      !is.na(first_voucher_since_1990) & !is.na(first_iNat_since_1990) ~ min(first_voucher_since_1990, first_iNat_since_1990)
+    ),
+    dataset = case_when(
+      is.na(first_voucher_since_1990) ~ "iNat",
+      is.na(first_iNat_since_1990) ~ "voucher",
+      !is.na(first_voucher_since_1990) & !is.na(first_iNat_since_1990) &  first_voucher_since_1990 >= first_iNat_since_1990 ~ "iNat",
+      !is.na(first_voucher_since_1990) & !is.na(first_iNat_since_1990) &  first_voucher_since_1990 < first_iNat_since_1990 ~ "voucher"
+    ),
+    counts = 1
+  ) %>%
+  select(accepted_name = scientific_name, year, dataset, counts) %>%
+  pivot_wider(names_from = dataset, values_from = counts) %>%
+  mutate(
+    iNat = if_else(is.na(iNat), 0, iNat),
+    voucher = if_else(is.na(voucher), 0, voucher)
+    ) %>%
+  select(-accepted_name) %>%
+  group_by(year) %>%
+  mutate(
+    voucher_finds_per_year = sum(voucher),
+    iNat_finds_per_year = sum(iNat)
+    ) %>%
+  select(-voucher, -iNat) %>%
+  distinct() %>%
+  ungroup() %>%
+  mutate(combined_finds_per_year = voucher_finds_per_year + iNat_finds_per_year)
+
+Royal_recent_obs_2_lines <- Royal_recent_obs_combined %>%
+  bind_rows(c("year" = 1989, "voucher_finds_per_year" = 0, "iNat_finds_per_year" = 0, "combined_finds_per_year" = 0)) %>%
+  arrange(year) %>%
+  mutate(total_combined_refound = combined_finds_per_year,
+         total_voucher_refound  = voucher_finds_per_year,
+         total_combined_refound = accumulate(combined_finds_per_year[-1], sum, .init = total_combined_refound[1]),
+         total_voucher_refound = accumulate(voucher_finds_per_year[-1], sum, .init = total_voucher_refound[1]),
+         remaining_combined = Royal_total_species - total_combined_refound,
+         remaining_voucher = Royal_total_species - total_voucher_refound,
+         proportion_remaining_combined = remaining_combined / Royal_total_species,
+         year = year + 1
+         )
+  
+  if (max(Royal_iNat_redetection_summary$year) < 2024) {
+  Royal_iNat_redetection_summary <- Royal_iNat_redetection_summary %>%
+    bind_rows(c("year" = 2024, 
+                "re_finds_per_year" = 0,
+                "total_refound" = max(Royal_iNat_redetection_summary$total_refound), 
+                "remaining" = min(Royal_iNat_redetection_summary$remaining),
+                "proportion_remaining" = min(Royal_iNat_redetection_summary$proportion_remaining)
+    ))
+  }
+  
+#write_csv(Royal_recent_combined, "data_Royal/Royal_recent_combined.csv", na = "")
+```
+
+### - generate plots
+
+```{r}
+# try https://stackoverflow.com/questions/61775003/ggplot2-create-shaded-area-with-gradient-below-curve to get colors to grade; won't let you use gradients with geom_ribbon
+
+combined_plot_a1 <- ggplot() + 
+  geom_rect(aes(xmin = 1990, xmax = 2024, ymin = 0, ymax = min(Royal_voucher_redetection_summary$remaining)), fill = "#608CB8", colour = NA, alpha = 0.2) + 
+  geom_ribbon(aes(x = year, ymin = min(remaining), ymax = remaining), data = Royal_voucher_redetection_summary, fill = "#608CB8", alpha = 0.35) +
+  geom_line(aes(x = year, y = remaining), data = Royal_voucher_redetection_summary, color = "#608CB8", size = 0.5) +
+  scale_x_continuous(limits = c(1990, 2024), breaks = c(1990, 2000, 2010, 2020), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0, 1000), breaks = c(200, 400, 600, 800, 1000), expand = c(0,0)) +
+  #geom_text(aes(x = 2008, y = 250, label = "status unknown", fontface = "italic")) +
+  geom_text(aes(x = 2010, y = 900, label = "")) +
+  theme_classic()  +
+  labs(
+    title = "Royal"
+  ) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+combined_plot_a2 <- ggplot() + 
+  geom_rect(aes(xmin = 1990, xmax = 2024, ymin = 0, ymax = min(Royal_iNat_redetection_summary$remaining)), fill = "#74AC00", colour = NA, alpha = 0.2) + 
+  geom_ribbon(aes(x = year, ymin = min(remaining), ymax = remaining), data = Royal_iNat_redetection_summary, fill = "#74AC00", alpha = 0.35) +
+  geom_line(aes(x = year, y = remaining), data = Royal_iNat_redetection_summary, color = "#74AC00", size = 0.5) +
+  scale_x_continuous(limits = c(1990, 2024), breaks = c(1990, 2000, 2010, 2020), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0, 1000), breaks = c(200, 400, 600, 800, 1000), expand = c(0,0)) +
+  #geom_text(aes(x = 2008, y = 205, label = "status unknown", fontface = "italic")) +
+  geom_text(aes(x = 2010, y = 1000, label = "")) +
+  theme_classic()  +
+  labs(
+    title = " "
+  ) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+combined_plot_b <- ggplot() + 
+    geom_rect(aes(xmin = 1990, xmax = 2024, ymin = 0, ymax = min(Royal_recent_obs_2_lines$remaining_combined)), fill = "#6EA387", colour = NA, alpha = 0.2) +
+    geom_ribbon(aes(x = year, ymin = min(remaining_combined), ymax = remaining_combined), data = Royal_recent_obs_2_lines, fill = "#6EA387", alpha = 0.35) +
+  geom_line(aes(x = year, y = remaining_combined), data = Royal_recent_obs_2_lines, color = "#6EA387", size = 0.5) +
+  scale_x_continuous(limits = c(1990, 2024), breaks = c(1990, 2000, 2010, 2020), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0, 1000), breaks = c(200, 400, 600, 800, 1000), expand = c(0,0)) +
+  #geom_text(aes(x = 2008, y = 180, label = "status unknown", fontface = "italic")) +
+  geom_text(aes(x = 2010, y = 900, label = "")) +
+theme_classic()  +
+  labs(
+    title = ""
+  ) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+combined_plot_c1 <- ggplot() + 
+  geom_rect(aes(xmin = 1990, xmax = 2024, ymin = 0, ymax = min(Yosemite_voucher_redetection_summary$remaining)), fill = "#608CB8", colour = NA, alpha = 0.2) + 
+  geom_ribbon(aes(x = year, ymin = min(remaining), ymax = remaining), data = Yosemite_voucher_redetection_summary, fill = "#608CB8", alpha = 0.35) +
+  geom_line(aes(x = year, y = remaining), data = Yosemite_voucher_redetection_summary, color = "#608CB8", size = 0.5) +
+  scale_x_continuous(limits = c(1990, 2024), breaks = c(1990, 2000, 2010, 2020), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0, 1600), breaks = c(500, 1000, 1500), expand = c(0,0)) +
+  #geom_text(aes(x = 2008, y = 220, label = "status unknown", fontface = "italic")) +
+  theme_classic()  +
+  labs(
+    title = "Yosemite"
+  ) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+combined_plot_c2 <- ggplot() + 
+  geom_rect(aes(xmin = 1990, xmax = 2024, ymin = 0, ymax = min(Yosemite_iNat_redetection_summary$remaining)), fill = "#74AC00", colour = NA, alpha = 0.2) + 
+  geom_ribbon(aes(x = year, ymin = min(remaining), ymax = remaining), data = Yosemite_iNat_redetection_summary, fill = "#74AC00", alpha = 0.35) +
+  geom_line(aes(x = year, y = remaining), data = Yosemite_iNat_redetection_summary, color = "#74AC00", size = 0.5) +
+  scale_x_continuous(limits = c(1990, 2024), breaks = c(1990, 2000, 2010, 2020), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0, 1600), breaks = c(500, 1000, 1500), expand = c(0,0)) +
+  #geom_text(aes(x = 2008, y = 340, label = "status unknown", fontface = "italic")) +
+  theme_classic()  +
+  labs(
+    title = ""
+  ) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+combined_plot_d <- ggplot() + 
+    geom_rect(aes(xmin = 1990, xmax = 2024, ymin = 0, ymax = min(Yosemite_recent_obs_2_lines$remaining_combined)), fill = "#6EA387", colour = NA, alpha = 0.2) +
+    geom_ribbon(aes(x = year, ymin = min(remaining_combined), ymax = remaining_combined), data = Yosemite_recent_obs_2_lines, fill = "#6EA387", alpha = 0.35) +
+  geom_line(aes(x = year, y = remaining_combined), data = Yosemite_recent_obs_2_lines, color = "#6EA387", size = 0.5) +
+  scale_x_continuous(limits = c(1990, 2024), breaks = c(1990, 2000, 2010, 2020), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0, 1600), breaks = c(500, 1000, 1500), expand = c(0,0)) +
+  #geom_text(aes(x = 2008, y = 110, label = "status unknown", fontface = "italic")) +
+theme_classic()  +
+  labs(
+    title = " "
+  ) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+row1 <- grid.arrange(
+  combined_plot_a1, combined_plot_a2, combined_plot_b,
+  ncol = 3,
+  top = textGrob("               vouchers                                                     iNaturalist                                                 combined resources", gp = gpar(fontsize = 14)))
+
+row2 <- grid.arrange(
+  combined_plot_c1, combined_plot_c2, combined_plot_d,
+  ncol = 3)
+  
+decline_in_unobserved <- grid.arrange(
+  row2, row1,
+  left = textGrob("species without recorded observations since 1990", rot = 90, gp = gpar(fontsize = 10)),
+  bottom = textGrob("year", gp = gpar(fontsize = 10))
+)
+
+cowplot::save_plot("output/Fig3_decline_in_unobserved.svg", decline_in_unobserved, base_width = 12, base_height = 6)
+
+```
+
+# Table 1. Summary stats
+
+```{r}
+Yosemite_species_paper_2 %>%
+  group_by(establishment_means) %>%
+  mutate(species_count = n()) %>%
+  ungroup() %>%
+  distinct(establishment_means, species_count)
+
+Yosemite_species_paper_2 %>%
+  filter(old_voucher == "1" & (is.na(recent_voucher) & is.na(iNat_RG_END))) %>%
+  group_by(establishment_means) %>%
+  mutate(species_count = n()) %>%
+  ungroup() %>%
+  distinct(establishment_means, species_count)
+
+Yosemite_species_paper_2 %>%
+  filter((recent_voucher == "1"|iNat_RG_END == "1") & is.na(old_voucher)) %>%
+  group_by(establishment_means) %>%
+  mutate(species_count = n()) %>%
+  ungroup() %>%
+  distinct(establishment_means, species_count)
+
+223/1570
+(91+96)/1570
+
+```
+
+# Table S1. new arrivals and long unobserved
+
+## Yosemite
+
+```{r}
+Yosemite_Supplementary_Table <- read_csv("data/Yosemite_alltime_list_2025_03_17.csv")
+Yosemite_long_unseen_locations <- read_csv("data/Yosemite_long_unseen_lat_lon_edited.csv") %>% select(scientific_name = current_name, latitude, longitude) %>% mutate(first_or_last_record_type = "voucher")
+
+Yosemite_recent_additions_all <- read_csv("data/Yosemite_recent_additions_all_latlon_edited.csv")
+
+Yosemite_coordinates <- Yosemite_recent_additions_all %>% select(scientific_name, first_or_last_record_type = source, latitude, longitude) %>% bind_rows(Yosemite_long_unseen_locations)
+
+Yosemite_Supplementary_Table_paper2 <- Yosemite_Supplementary_Table %>%
+  filter(final_list == 1) %>% # only consider species in final list
+  filter(iNat_RG_END == 1 | voucher_END == 1) %>% # only consider species with voucher or iNat record
+  mutate(
+    #year_first_iNat = lubridate::mdy(date_first_iNat_obs) %>% lubridate::year(),
+    #year_last_iNat = lubridate::mdy(date_last_iNat_obs) %>% lubridate::year(),
+    year_first_record = ifelse(year_first_voucher < year_first_iNat | is.na(year_first_iNat), year_first_voucher, year_first_iNat),
+    year_first_record = ifelse(is.na(year_first_record), year_first_iNat, year_first_record),
+    year_last_record = ifelse(year_last_voucher > year_last_iNat | is.na(year_last_iNat), year_last_voucher, year_last_iNat),
+    year_last_record = ifelse(is.na(year_last_record), year_last_iNat, year_last_record),
+    sublist = ifelse(year_first_record > 1989, "recent discovery", NA),
+    sublist = ifelse(year_last_record < 1990, "long unobserved", sublist),
+    sublist = ifelse(is.na(sublist),"old and recent records", sublist),
+    ) %>%
+  left_join(Yosemite_coordinates %>% rename(accepted_name = scientific_name)) %>% 
+  select(1:5, establishment_means, sublist, first_or_last_record_type, year_first_record, year_last_record, year_first_voucher, year_last_voucher, year_first_iNat_obs = year_first_iNat, year_last_iNat_obs = year_last_iNat, latitude, longitude) %>%
+  ungroup() %>%
+  mutate(
+    first_record_type = ifelse(year_first_voucher < year_first_iNat_obs | is.na(year_first_iNat_obs), "voucher", "iNat"),
+    first_record_type = ifelse(is.na(year_first_voucher), "iNat", first_record_type),
+    last_record_type = ifelse(year_last_voucher > year_last_iNat_obs | is.na(year_last_iNat_obs), "voucher", "iNat"),
+    last_record_type = ifelse(is.na(year_last_voucher), "iNat", last_record_type),
+    latitude_first_record_recent_discovery = ifelse(sublist == "recent discovery", latitude, NA),
+    longitude_first_record_recent_discovery = ifelse(sublist == "recent discovery", longitude, NA),
+    latitude_last_record_long_unobserved = ifelse(sublist == "long unobserved", latitude, NA),
+    longitude_last_record_long_unobserved = ifelse(sublist == "long unobserved", longitude, NA),
+    across(c("year_first_record", "year_last_record", "year_first_voucher", "year_last_voucher", "year_first_iNat_obs", "year_last_iNat_obs"), ~as.character(.x)),
+    # manual fixes for two species
+    sublist = factor(sublist, levels = c("recent discovery", "long unobserved", "old and recent records"))
+    ) %>%
+  select(-latitude, -longitude, -first_or_last_record_type) %>% 
+  arrange(sublist, year_first_record) %>%
+  write_csv("output/Yosemite_Supplementary_Table.csv", na = "")
+```
+
+## Royal
+
+```{r}
+
+Royal_data <- read_csv("data/Royal_alltime_list_2025_03_17.csv")
+Royal_coordinates <- read_csv("data/Royal_locations_first_last_coordinates_2024_11_05.csv")
+
+Royal_Supplementary_Table_paper2 <- Royal_data %>%
+  filter(final_list == 1) %>% # only consider species in final list
+  filter(iNat_RG_END == 1 | voucher_END == 1) %>% # only consider species with voucher or iNat record
+  mutate(
+    year_first_voucher = ifelse(scientific_name == "Myriophyllum gracile", 1800, year_first_voucher),
+    year_last_voucher = ifelse(scientific_name == "Myriophyllum gracile", 1800, year_last_voucher),
+    date_first_iNat_obs = ifelse(scientific_name == "Cyperus reflexus", 1990, date_first_iNat_obs),
+    date_last_iNat_obs = ifelse(scientific_name == "Cyperus reflexus", 1990, date_last_iNat_obs),
+    year_first_record = ifelse(year_first_voucher < date_first_iNat_obs | is.na(date_first_iNat_obs), year_first_voucher, date_first_iNat_obs),
+    year_first_record = ifelse(is.na(year_first_record), date_first_iNat_obs, year_first_record),
+    year_last_record = ifelse(year_last_voucher > date_last_iNat_obs | is.na(date_last_iNat_obs), year_last_voucher, date_last_iNat_obs),
+    year_last_record = ifelse(is.na(year_last_record), date_last_iNat_obs, year_last_record),
+    sublist = ifelse(year_first_record > 1989, "recent discovery", NA),
+    sublist = ifelse(year_last_record < 1990, "long unobserved", sublist),
+    sublist = ifelse(is.na(sublist),"old and recent records", sublist),
+    ) %>% 
+  left_join(Royal_coordinates %>% select(scientific_name, first_or_last_record_type = `record type`, latitude, longitude)) %>% 
+  select(1:6, establishment_means, sublist, first_or_last_record_type, year_first_record, year_last_record, year_first_voucher, year_last_voucher, year_first_iNat_obs = date_first_iNat_obs, year_last_iNat_obs = date_last_iNat_obs, latitude, longitude) %>%
+  ungroup() %>%
+  mutate(
+    first_record_type = ifelse(year_first_voucher < year_first_iNat_obs | is.na(year_first_iNat_obs), "voucher", "iNat"),
+    first_record_type = ifelse(is.na(year_first_voucher), "iNat", first_record_type),
+    last_record_type = ifelse(year_last_voucher > year_last_iNat_obs | is.na(year_last_iNat_obs), "voucher", "iNat"),
+    last_record_type = ifelse(is.na(year_last_voucher), "iNat", last_record_type),
+    latitude_first_record_recent_discovery = ifelse(sublist == "recent discovery", latitude, NA),
+    longitude_first_record_recent_discovery = ifelse(sublist == "recent discovery", longitude, NA),
+    latitude_last_record_long_unobserved = ifelse(sublist == "long unobserved", latitude, NA),
+    longitude_last_record_long_unobserved = ifelse(sublist == "long unobserved", longitude, NA),
+    across(c("year_first_record", "year_last_record", "year_first_voucher", "year_last_voucher", "year_first_iNat_obs", "year_last_iNat_obs"), ~as.character(.x)),
+    # manual fixes for two species
+    year_first_record = ifelse(scientific_name == "Myriophyllum gracile", "18xx", year_first_record),
+    year_last_record = ifelse(scientific_name == "Myriophyllum gracile", "18xx", year_last_record),
+    year_first_voucher = ifelse(scientific_name == "Myriophyllum gracile", "18xx", year_first_voucher),
+    year_last_voucher = ifelse(scientific_name == "Myriophyllum gracile", "18xx", year_last_voucher),
+    year_first_record = ifelse(scientific_name == "Cyperus reflexus", "199x", year_first_record),
+    year_last_record = ifelse(scientific_name == "Cyperus reflexus", "199x", year_last_record),
+    year_first_iNat_obs = ifelse(scientific_name == "Cyperus reflexus", "199x", year_first_iNat_obs),
+    year_last_iNat_obs = ifelse(scientific_name == "Cyperus reflexus", "199x", year_last_iNat_obs),
+    sublist = ifelse(scientific_name == "Nematolepis squamea", "old and recent records", sublist),
+    sublist = factor(sublist, levels = c("recent discovery", "long unobserved", "old and recent records"))
+    ) %>%
+  select(-latitude, -longitude, -first_or_last_record_type) %>% 
+  arrange(sublist, year_first_record) %>%
+  write_csv("output/Royal_Supplementary_Table.csv", na = "")
+```
+
+## tests
+
+```{r}
+
+# confirm coordinates for all recent discoveries and long unobserved; no coordinates for old & new, so numbers match lat/long files
+Yosemite_Supplementary_Table_paper2 %>% 
+  filter(sublist == "old and recent records") %>% 
+  filter(!is.na(latitude_first_record_recent_discovery) | !is.na(latitude_last_record_long_unobserved))
+
+
+Yosemite_Supplementary_Table_paper2 %>%
+  group_by(sublist, establishment_means) %>%
+  mutate(count = n()) %>%
+  ungroup() %>%
+  distinct(sublist, establishment_means, count)
+
+
+Royal_Supplementary_Table_paper2 %>%
+  group_by(sublist, establishment_means) %>%
+  mutate(count = n()) %>%
+  ungroup() %>%
+  distinct(sublist, establishment_means, count)
+```
