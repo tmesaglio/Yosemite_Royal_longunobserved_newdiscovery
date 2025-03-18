@@ -29,13 +29,16 @@ events <- data.frame(
   park = c("Yosemite", "Yosemite","Royal","Royal","Yosemite"),
   y = c(3400, 3400, 1950, 2400, 4300)  # Adjust the vertical position as needed
 )
+# Reorder 'park' factor to make sure 'Yosemite' comes before 'Royal'
+both$park <- factor(both$park, levels = rev(c( "Yosemite","Royal")))
 
-
+both$park <- fct_rev(both$park) 
+events$park <- factor(events$park, levels = levels(both$park))
 # Plot
-ggplot(both, aes(x = year )) +
-  geom_bar(aes(fill = `Record type`)) +
+ggplot(data=both, aes(x = year)) +
+  geom_bar(data=both, aes(fill = `Record type`)) +
   scale_fill_manual(values = c("#74AC00BF","#608CB8BF"))+
-  facet_grid(park ~ .,scales = "free") +
+  facet_grid(park~.,scales = "free") +
   theme_bw() +
   # Add arrows coming down from the top
   geom_segment(
